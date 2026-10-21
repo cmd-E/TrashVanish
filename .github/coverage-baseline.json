@@ -1,0 +1,11 @@
+{
+  "assembly": "TrashVanish",
+  "minimumLinePercent": {
+    "TrashVanish.PlannedRule": 100,
+    "TrashVanish.RulePlanner": 100,
+    "TrashVanish.Classes.currentCulture": 100,
+    "TrashVanish.DatabaseStore": 99,
+    "TrashVanish.GridUpdater": 91,
+    "TrashVanish.Worker": 83
+  }
+}

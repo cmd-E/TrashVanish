@@ -34,7 +34,28 @@ The older `run-core-checks.ps1` and `run-integration-checks.ps1` smoke checks re
 
 CI uses `windows-2022` and the latest patched .NET 8.0.4xx SDK for compatibility with Visual Studio 2022. A temporary `global.json` on the runner prevents preinstalled newer SDKs from being selected. The application remains on .NET Framework 4.6.1 and the tests on 4.8. The development-only reference assembly package supplies the old framework at compile time and is not shipped with the application.
 
-The job uploads TRX test results and Cobertura coverage reports as `windows-test-results`, retained for 14 days. Upload is attempted even after test failure. No secrets or write permissions are needed, and the workflow does not publish releases. Once it has run on GitHub, maintainers can make `Windows build and tests` a required check in repository branch protection or rulesets.
+The test job uploads TRX results, Cobertura reports, and Markdown/JSON coverage summaries as `windows-test-results`, retained for 14 days. Upload is attempted even after failure. It needs only read access. The separate `CodeQL (C#)` job uses `security-events: write` to upload security results. The workflow does not publish releases or require stored secrets.
+
+### Coverage tracking
+
+Each test run publishes a class coverage table in the Actions job summary. `.github/coverage-baseline.json` gates production classes: 100% line coverage for planning, matching, and culture selection; 99% for persistence; 91% for grid updates; and 83% for the worker. These are conservative minimums based on the first measured suite. Lowering them should be an explicit reviewed policy change. Missing classes or reports fail the gate. Overall application coverage is reported without a minimum because it includes uncovered forms and generated code.
+
+Run the gate locally after `./tests/run-tests.ps1 -Coverage`:
+
+```powershell
+$report = Get-ChildItem .artifacts/test-results -Recurse -Filter '*.cobertura.xml' |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+./tests/check-coverage.ps1 -ReportPath $report.FullName
+./tests/test-coverage-check.ps1
+```
+
+The checker has self-tests for threshold boundaries, missing/duplicate classes, malformed reports, XML external entities, and invalid policies. JSON artifacts record the commit and measured coverage for comparison across runs; no external coverage service is required.
+
+### CodeQL and merge protection
+
+CodeQL traces a clean Windows rebuild using the same `tests/build.ps1` helper as the tests, then runs the C# `security-extended` query suite. Findings appear in GitHub's code scanning alerts. A successful analysis job means the scan completed, not that it found no alerts; alerts still require review.
+
+`.github/branch-ruleset.json` declares the repository's default-branch policy. It requires pull requests, resolved conversations, an up-to-date branch, and passing `Windows build and tests` (including the coverage gate) and `CodeQL (C#)` checks from GitHub Actions. Force pushes and deletion are blocked, with no bypass actors. It deliberately requires zero approving reviews so a sole maintainer can merge their own passing pull request. This JSON is a policy record, not an automatically executed workflow; rules must be applied through GitHub's ruleset API/settings. Existing rules must be inspected before changing them.
 
 ## Verified results
 
