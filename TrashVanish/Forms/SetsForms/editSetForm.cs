@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -26,9 +26,9 @@ namespace TrashVanish.Forms.SetsForms
         private void editSetForm_Load(object sender, EventArgs e)
         {
             setNameTextBox.Text = setToEdit.setName;
-            foreach (KeyValuePair<string, string> entry in getExtensionsAndIncludes())
+            foreach (setExtensionModel entry in setToEdit.extensions)
             {
-                extensionsList.Rows.Add(entry.Key, entry.Value);
+                extensionsList.Rows.Add(entry.extension, entry.includes);
             }
             targetPathTextBox.Text = setToEdit.targetPath;
             isCaseSensetiveCheckBox.Checked = setToEdit.isCaseSensetive == 1 ? true : false;
@@ -36,7 +36,8 @@ namespace TrashVanish.Forms.SetsForms
 
         private Dictionary<string, string> getExtensionsAndIncludes()
         {
-            Dictionary<string, string> extensionsAndIncludes = new Dictionary<string, string>();
+            Dictionary<string, string> extensionsAndIncludes =
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (setExtensionModel ext in setToEdit.extensions)
             {
                 extensionsAndIncludes.Add(ext.extension, ext.includes);
@@ -48,7 +49,7 @@ namespace TrashVanish.Forms.SetsForms
         {
             string extension = extensionTextBox.Text.Trim();
             string includes = includesTextBox.Text.Trim();
-            if (extensionTextBox.Text == "")
+            if (extension.Length == 0)
             {
                 messageLabelFunc(resourceManager.GetString("extIsInvalid"), Color.DarkOrange);
                 return;
@@ -63,6 +64,15 @@ namespace TrashVanish.Forms.SetsForms
             }
             extensionTextBox.Text = "";
             includesTextBox.Text = "";
+            foreach (DataGridViewRow row in extensionsList.Rows)
+            {
+                if (!row.IsNewRow &&
+                    string.Equals(Convert.ToString(row.Cells[0].Value), extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    messageLabelFunc(resourceManager.GetString("duplicateExtension"), Color.DarkOrange);
+                    return;
+                }
+            }
             extensionsList.Rows.Add(extension, includes);
         }
 
@@ -77,6 +87,7 @@ namespace TrashVanish.Forms.SetsForms
             {
                 messageLabel.Hide();
                 timer.Stop();
+                timer.Dispose();
             };
             timer.Start();
         }
@@ -120,35 +131,52 @@ namespace TrashVanish.Forms.SetsForms
 
         private void updateSetButton_Click(object sender, EventArgs e)
         {
-            //string id = rulesGrid.CurrentRow.Cells[0].Value.ToString();
-            string id = setToEdit.setID;
-            int isCaseSensetive = isCaseSensetiveCheckBox.Checked ? 1 : 0;
-            if (setNameTextBox.Text == "" || extensionsList.Rows.Count == 0 || targetPathTextBox.Text == "")
+            try
             {
-                messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
-                return;
+
+                // string id = rulesGrid.CurrentRow.Cells[0].Value.ToString();
+                string id = setToEdit.setID;
+                int isCaseSensetive = isCaseSensetiveCheckBox.Checked ? 1 : 0;
+                if (setNameTextBox.Text == "" || extensionsList.Rows.Count == 0 || targetPathTextBox.Text == "")
+                {
+                    messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
+                    return;
+                }
+                if (!pathValidate(targetPathTextBox.Text))
+                {
+                    return;
+                }
+                string setName = setNameTextBox.Text;
+                Dictionary<string, string> setExtensionsAndIncludes =
+                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (DataGridViewRow listItem in extensionsList.Rows)
+                {
+                    if (listItem.IsNewRow)
+                        continue;
+                    string ext = Convert.ToString(listItem.Cells[0].Value).Trim();
+                    if (ext.Length == 0 || setExtensionsAndIncludes.ContainsKey(ext))
+                    {
+                        messageLabelFunc(resourceManager.GetString("duplicateExtension"), Color.DarkOrange);
+                        return;
+                    }
+                    setExtensionsAndIncludes.Add(ext, Convert.ToString(listItem.Cells[1].Value).Trim());
+                }
+                string targetPath = targetPathTextBox.Text;
+                DBConnection.UpdateSet(id, setName, setExtensionsAndIncludes, targetPath, isCaseSensetive);
+                // DBConnection.UpdateSet(id, setName, setExtensions, targetPath);
+                setNameTextBox.Text = "";
+                extensionTextBox.Text = "";
+                extensionsList.Rows.Clear();
+                GridUpdater gridUpdater = new GridUpdater(rulesGrid);
+                gridUpdater.UpdateExtensionsSets();
+                messageLabelFunc(resourceManager.GetString("setAddedSuccessfully"), Color.Lime);
+                Close();
             }
-            if (!pathValidate(targetPathTextBox.Text))
+            catch (Exception error)
             {
-                return;
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            string setName = setNameTextBox.Text;
-            Dictionary<string, string> setExtensionsAndIncludes = new Dictionary<string, string>();
-            foreach (DataGridViewRow listItem in extensionsList.Rows)
-            {
-                setExtensionsAndIncludes.Add(listItem.Cells[0].Value.ToString(), listItem.Cells[1].Value.ToString());
-            }
-            string targetPath = targetPathTextBox.Text;
-            DBConnection.DeleteSet(id);
-            DBConnection.AddSet(setName, setExtensionsAndIncludes, targetPath, isCaseSensetive);
-            //DBConnection.UpdateSet(id, setName, setExtensions, targetPath);
-            setNameTextBox.Text = "";
-            extensionTextBox.Text = "";
-            extensionsList.Rows.Clear();
-            GridUpdater gridUpdater = new GridUpdater(rulesGrid);
-            gridUpdater.UpdateExtensionsSets();
-            messageLabelFunc(resourceManager.GetString("setAddedSuccessfully"), Color.Lime);
-            Close();
         }
 
         private void addExtensionToSetButton_Click_1(object sender, EventArgs e)

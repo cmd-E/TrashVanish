@@ -143,6 +143,7 @@ _TeamCity*
 
 # Coverlet is a free, cross platform Code Coverage Tool
 coverage*.json
+!.github/coverage-baseline.json
 coverage*.xml
 coverage*.info
 
@@ -360,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Local verification output
+.artifacts/

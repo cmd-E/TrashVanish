@@ -1,8 +1,5 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using TrashVanish.Classes;
 
@@ -10,11 +7,19 @@ namespace TrashVanish
 {
     internal class GridUpdater
     {
-        private DataGridView dataGrid;
+        private readonly DataGridView dataGrid;
+        private readonly Func<List<RuleModel>> loadRules;
+        private readonly Func<List<SetModel>> loadSets;
 
-        public GridUpdater(DataGridView dataGrid)
+        public GridUpdater(DataGridView dataGrid) : this(dataGrid, DBConnection.LoadRules, DBConnection.LoadSets)
+        {
+        }
+
+        internal GridUpdater(DataGridView dataGrid, Func<List<RuleModel>> loadRules, Func<List<SetModel>> loadSets)
         {
             this.dataGrid = dataGrid;
+            this.loadRules = loadRules;
+            this.loadSets = loadSets;
         }
 
         /// <summary>
@@ -22,11 +27,13 @@ namespace TrashVanish
         /// </summary>
         public void UpdateRules()
         {
+            // Keep the displayed data if loading fails.
+            List<RuleModel> rules = loadRules();
             dataGrid.Rows.Clear();
-            List<RuleModel> rules = DBConnection.LoadRules();
             foreach (RuleModel rule in rules)
             {
-                dataGrid.Rows.Add(rule.ruleID, rule.ruleExtension, rule.ruleIncludes, rule.ruleIsCaseSensetive, rule.rulePath);
+                dataGrid.Rows.Add(rule.ruleID, rule.ruleExtension, rule.ruleIncludes, rule.ruleIsCaseSensetive,
+                                  rule.rulePath);
             }
         }
 
@@ -35,11 +42,12 @@ namespace TrashVanish
         /// </summary>
         public void UpdateExtensionsSets()
         {
+            List<SetModel> sets = loadSets();
             dataGrid.Rows.Clear();
-            List<SetModel> sets = DBConnection.LoadSets();
             foreach (SetModel set in sets)
             {
-                dataGrid.Rows.Add(set.setID, set.setName, stringifyExtensions(set.extensions), set.isCaseSensetive, set.targetPath); // make string with all extensions
+                dataGrid.Rows.Add(set.setID, set.setName, stringifyExtensions(set.extensions), set.isCaseSensetive,
+                                  set.targetPath); // make string with all extensions
             }
         }
 

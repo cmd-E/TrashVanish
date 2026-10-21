@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Windows build and tests
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Select SDK compatible with Visual Studio 2022
+        # Hosted images also contain newer SDKs. Keep MSBuild on the 8.0.4xx band.
+        # This file is generated only on the disposable CI runner.
+        run: dotnet new globaljson --sdk-version 8.0.400 --roll-forward latestPatch
+
+      - name: Build and run unit and integration tests
+        run: ./tests/run-tests.ps1 -Coverage
+
+      - name: Verify coverage checker
+        run: ./tests/test-coverage-check.ps1
+
+      - name: Enforce core coverage and publish summary
+        run: |
+          $report = Get-ChildItem .artifacts/test-results -Recurse -Filter '*.cobertura.xml' |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (!$report) { throw 'No Cobertura coverage report was produced.' }
+          ./tests/check-coverage.ps1 -ReportPath $report.FullName
+
+      - name: Run core smoke checks
+        run: ./tests/run-core-checks.ps1
+
+      - name: Run SQLite and localization smoke checks
+        run: ./tests/run-integration-checks.ps1
+
+      - name: Upload test results and coverage
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-test-results
+          path: |
+            .artifacts/test-results/**/*.trx
+            .artifacts/test-results/**/*.cobertura.xml
+            .artifacts/coverage/coverage-summary.json
+            .artifacts/coverage/coverage-summary.md
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  codeql:
+    name: CodeQL (C#)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Select SDK compatible with Visual Studio 2022
+        run: dotnet new globaljson --sdk-version 8.0.400 --roll-forward latestPatch
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@48870fdd6b42ee6474ec4207209ff87609271a5e # v4.39.0
+        with:
+          languages: csharp
+          build-mode: manual
+          queries: security-extended
+
+      - name: Restore and rebuild for analysis
+        run: ./tests/build.ps1 -Rebuild
+
+      - name: Analyze C# and upload findings
+        uses: github/codeql-action/analyze@48870fdd6b42ee6474ec4207209ff87609271a5e # v4.39.0
+        with:
+          category: /language:csharp

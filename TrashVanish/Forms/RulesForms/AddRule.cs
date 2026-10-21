@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Resources;
@@ -35,37 +35,50 @@ namespace TrashVanish
 
         private void AddRuleButton_Click(object sender, EventArgs e)
         {
-            includes = includesTextBox.Text.Trim();
-            path = pathTextBox.Text.Trim();
-            extension = ExtensionTextBox.Text.Trim();
-            isCaseSensetive = isCaseSensetiveCheckBox.Checked ? 1 : 0; // Since SQLite doesn't have native boolean, I will use digits instead
-            if (extension == "" || path == "")
+            try
             {
-                messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
-                return;
-            }
-            if (extension[0] != '.')
-            {
-                extension = '.' + extension;
-            }
-            if (!extValidate(extension) || !pathValidate(path))
-            {
-                return;
-            }
 
-            if (DBConnection.IsRuleExist(extension, includes, isCaseSensetive))
-            {
-                messageLabelFunc(string.Format(resourceManager.GetString("ruleForExtAlreadyExist"), extension), Color.DarkOrange);
-                return;
+                includes = includesTextBox.Text.Trim();
+                path = pathTextBox.Text.Trim();
+                extension = ExtensionTextBox.Text.Trim();
+                isCaseSensetive = isCaseSensetiveCheckBox.Checked
+                                      ? 1
+                                      : 0; // Since SQLite doesn't have native boolean, I will use digits instead
+                if (extension == "" || path == "")
+                {
+                    messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
+                    return;
+                }
+                if (extension[0] != '.')
+                {
+                    extension = '.' + extension;
+                }
+                if (!extValidate(extension) || !pathValidate(path))
+                {
+                    return;
+                }
+
+                if (DBConnection.IsRuleExist(extension, includes, isCaseSensetive))
+                {
+                    messageLabelFunc(string.Format(resourceManager.GetString("ruleForExtAlreadyExist"), extension),
+                                     Color.DarkOrange);
+                    return;
+                }
+                RuleModel rule = new RuleModel { ruleExtension = extension, ruleIncludes = includes,
+                                                 ruleIsCaseSensetive = isCaseSensetive, rulePath = path };
+                DBConnection.AddRule(rule);
+                messageLabelFunc(string.Format(resourceManager.GetString("ruleCreatedSuccessfuly")), Color.Lime);
+                ExtensionTextBox.Text = "";
+                includesTextBox.Text = "";
+                pathTextBox.Text = "";
+                GridUpdater gu = new GridUpdater(rulesGrid);
+                gu.UpdateRules();
             }
-            RuleModel rule = new RuleModel { ruleExtension = extension, ruleIncludes = includes, ruleIsCaseSensetive = isCaseSensetive, rulePath = path };
-            DBConnection.AddRule(rule);
-            messageLabelFunc(string.Format(resourceManager.GetString("ruleCreatedSuccessfuly")), Color.Lime);
-            ExtensionTextBox.Text = "";
-            includesTextBox.Text = "";
-            pathTextBox.Text = "";
-            GridUpdater gu = new GridUpdater(rulesGrid);
-            gu.UpdateRules();
+            catch (Exception error)
+            {
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void messageLabelFunc(string message, Color color)
@@ -79,6 +92,7 @@ namespace TrashVanish
             {
                 messageLabel.Hide();
                 timer.Stop();
+                timer.Dispose();
             };
             timer.Start();
         }
