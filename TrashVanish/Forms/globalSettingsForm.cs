@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows.Forms;
 using TrashVanish.Classes;
 using TrashVanish.Forms.RulesForms;
@@ -37,12 +37,21 @@ namespace TrashVanish.Forms
 
         private void GlobalSettingsForm_Load(object sender, EventArgs e)
         {
-            LoadCheckboxSettings();
-            rulesUpdater = new GridUpdater(rulesGrid);
-            setsUpdater = new GridUpdater(extensionsSetGrid);
+            try
+            {
 
-            rulesUpdater.UpdateRules();
-            setsUpdater.UpdateExtensionsSets();
+                LoadCheckboxSettings();
+                rulesUpdater = new GridUpdater(rulesGrid);
+                setsUpdater = new GridUpdater(extensionsSetGrid);
+
+                rulesUpdater.UpdateRules();
+                setsUpdater.UpdateExtensionsSets();
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void LoadCheckboxSettings()
@@ -54,13 +63,22 @@ namespace TrashVanish.Forms
 
         private void RulesAndSetsTabControl_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (rulesAndSetsTabControl.SelectedTab == rulesAndSetsTabControl.TabPages["RulesSettingsTab"])
+            try
             {
-                rulesUpdater.UpdateRules();
+
+                if (rulesAndSetsTabControl.SelectedTab == rulesAndSetsTabControl.TabPages["RulesSettingsTab"])
+                {
+                    rulesUpdater.UpdateRules();
+                }
+                else
+                {
+                    setsUpdater.UpdateExtensionsSets();
+                }
             }
-            else
+            catch (Exception error)
             {
-                setsUpdater.UpdateExtensionsSets();
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -82,63 +100,109 @@ namespace TrashVanish.Forms
         // RULES CONTEXT MENU
         private void UpdateGridItem_Click(object sender, EventArgs e)
         {
-            rulesUpdater.UpdateRules();
+            try
+            {
+
+                rulesUpdater.UpdateRules();
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void AddRuleItem_Click(object sender, EventArgs e)
         {
-            Form ar = Application.OpenForms["AddRule"];
-            if (ar != null)
+            try
             {
-                ar.Activate();
-                return;
+
+                Form ar = Application.OpenForms["AddRule"];
+                if (ar != null)
+                {
+                    ar.Activate();
+                    return;
+                }
+                else
+                {
+                    AddRule addRuleForm = new AddRule(rulesGrid);
+                    addRuleForm.ShowDialog();
+                }
+                rulesUpdater.UpdateRules();
             }
-            else
+            catch (Exception error)
             {
-                AddRule addRuleForm = new AddRule(rulesGrid);
-                addRuleForm.ShowDialog();
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            rulesUpdater.UpdateRules();
         }
 
         private void EditRuleItem_Click(object sender, EventArgs e)
         {
-            if (!RulesAreExist())
+            try
             {
-                return;
+
+                if (!RulesAreExist())
+                {
+                    return;
+                }
+                Form er = Application.OpenForms["editRule"];
+                if (er != null)
+                {
+                    er.Activate();
+                    return;
+                }
+                else
+                {
+                    // editRuleForm editRuleForm = new editRuleForm(rulesGrid);
+                    editRuleForm erf = new editRuleForm(rulesGrid);
+                    erf.ShowDialog();
+                }
+                rulesUpdater.UpdateRules();
             }
-            Form er = Application.OpenForms["editRule"];
-            if (er != null)
+            catch (Exception error)
             {
-                er.Activate();
-                return;
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            else
-            {
-                //editRuleForm editRuleForm = new editRuleForm(rulesGrid);
-                editRuleForm erf = new editRuleForm(rulesGrid);
-                erf.ShowDialog();
-            }
-            rulesUpdater.UpdateRules();
         }
 
         private void DeleteRuleItem_Click(object sender, EventArgs e)
         {
-            if (!RulesAreExist())
+            try
             {
-                return;
+
+                if (!RulesAreExist())
+                {
+                    return;
+                }
+                int selectedrow = rulesGrid.CurrentCell.RowIndex;
+                ;
+                int columnbydefault = 0; // column with id (invisible)
+                DBConnection.DeleteRule(rulesGrid.Rows[selectedrow].Cells[columnbydefault].Value.ToString());
+                rulesUpdater.UpdateRules();
             }
-            int selectedrow = rulesGrid.CurrentCell.RowIndex; ;
-            int columnbydefault = 0; // column with id (invisible)
-            DBConnection.DeleteRule(rulesGrid.Rows[selectedrow].Cells[columnbydefault].Value.ToString());
-            rulesUpdater.UpdateRules();
+            catch (Exception error)
+            {
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         // SETS CONTEXT MENU
 
         private void UpdateSetGridItem_Click(object sender, EventArgs e)
         {
-            setsUpdater.UpdateExtensionsSets();
+            try
+            {
+
+                setsUpdater.UpdateExtensionsSets();
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void AddSetItem_Click(object sender, EventArgs e)
@@ -158,14 +222,47 @@ namespace TrashVanish.Forms
 
         private void EditSetItem_Click(object sender, EventArgs e)
         {
-            Form esf = Application.OpenForms["editSetForm"];
-            if (esf != null)
+            try
             {
-                esf.Activate();
-                return;
+
+                Form esf = Application.OpenForms["editSetForm"];
+                if (esf != null)
+                {
+                    esf.Activate();
+                    return;
+                }
+                else
+                {
+                    int selectedrow;
+                    try
+                    {
+                        selectedrow = extensionsSetGrid.CurrentCell.RowIndex;
+                    }
+                    catch (NullReferenceException)
+                    {
+                        // Mo rules in grid yet
+                        return;
+                    }
+                    int columnbydefault = 0; // column with id (invisible)
+                    SetModel setToEdit = DBConnection.LoadSetByID(
+                        extensionsSetGrid.Rows[selectedrow].Cells[columnbydefault].Value.ToString());
+                    editSetForm editSetForm = new editSetForm(setToEdit, extensionsSetGrid);
+                    editSetForm.Show();
+                }
             }
-            else
+            catch (Exception error)
             {
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void DeleteSetItem_Click(object sender, EventArgs e)
+        {
+            try
+            {
+
+                // Удалить набор
                 int selectedrow;
                 try
                 {
@@ -177,28 +274,14 @@ namespace TrashVanish.Forms
                     return;
                 }
                 int columnbydefault = 0; // column with id (invisible)
-                SetModel setToEdit = DBConnection.LoadSetByID(extensionsSetGrid.Rows[selectedrow].Cells[columnbydefault].Value.ToString());
-                editSetForm editSetForm = new editSetForm(setToEdit, extensionsSetGrid);
-                editSetForm.Show();
+                DBConnection.DeleteSet(extensionsSetGrid.Rows[selectedrow].Cells[columnbydefault].Value.ToString());
+                setsUpdater.UpdateExtensionsSets();
             }
-        }
-
-        private void DeleteSetItem_Click(object sender, EventArgs e)
-        {
-            // Удалить набор
-            int selectedrow;
-            try
+            catch (Exception error)
             {
-                selectedrow = extensionsSetGrid.CurrentCell.RowIndex;
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            catch (NullReferenceException)
-            {
-                // Mo rules in grid yet
-                return;
-            }
-            int columnbydefault = 0; // column with id (invisible)
-            DBConnection.DeleteSet(extensionsSetGrid.Rows[selectedrow].Cells[columnbydefault].Value.ToString());
-            setsUpdater.UpdateExtensionsSets();
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Resources;
@@ -14,7 +14,7 @@ namespace TrashVanish.Forms.RulesForms
 
         public editRuleForm(DataGridView dataGridView)
         {
-            //rulesGrid.CurrentRow.Cells[i].Value.ToString();
+            // rulesGrid.CurrentRow.Cells[i].Value.ToString();
             InitializeComponent();
             rulesGrid = dataGridView;
             this.Icon = Properties.Resources.appicon;
@@ -25,48 +25,59 @@ namespace TrashVanish.Forms.RulesForms
         {
             ExtensionTextBox.Text = rulesGrid.CurrentRow.Cells[1].Value.ToString();
             includesTextBox.Text = rulesGrid.CurrentRow.Cells[2].Value.ToString();
-            //pathTextBox.Text = rulesGrid.CurrentRow.Cells[3].Value.ToString();
+            // pathTextBox.Text = rulesGrid.CurrentRow.Cells[3].Value.ToString();
             caseSensetive.Checked = Convert.ToInt32(rulesGrid.CurrentRow.Cells[3].Value.ToString()) == 1 ? true : false;
             pathTextBox.Text = rulesGrid.CurrentRow.Cells[4].Value.ToString();
         }
 
         private void saveChangesButton_Click(object sender, EventArgs e)
         {
-            string id = rulesGrid.CurrentRow.Cells[0].Value.ToString();
-            string includes = includesTextBox.Text.Trim();
-            string path = pathTextBox.Text.Trim();
-            string extension = ExtensionTextBox.Text.Trim();
-            int isCaseSensetive = caseSensetive.Checked ? 1 : 0;
+            try
+            {
 
-            if (extension == "" || path == "")
-            {
-                messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
-                return;
-            }
-            if (extension[0] != '.')
-            {
-                extension = '.' + extension;
-            }
-            if (!extValidate(extension) || !pathValidate(path))
-            {
-                return;
-            }
+                string id = rulesGrid.CurrentRow.Cells[0].Value.ToString();
+                string includes = includesTextBox.Text.Trim();
+                string path = pathTextBox.Text.Trim();
+                string extension = ExtensionTextBox.Text.Trim();
+                int isCaseSensetive = caseSensetive.Checked ? 1 : 0;
 
-            if (DBConnection.IsRuleExist(extension, includes, isCaseSensetive))
-            {
-                messageLabelFunc(string.Format(resourceManager.GetString("ruleForExtAlreadyExist"), extension), Color.DarkOrange);
-                return;
+                if (extension == "" || path == "")
+                {
+                    messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
+                    return;
+                }
+                if (extension[0] != '.')
+                {
+                    extension = '.' + extension;
+                }
+                if (!extValidate(extension) || !pathValidate(path))
+                {
+                    return;
+                }
+
+                if (DBConnection.IsRuleExist(extension, includes, isCaseSensetive, id))
+                {
+                    messageLabelFunc(string.Format(resourceManager.GetString("ruleForExtAlreadyExist"), extension),
+                                     Color.DarkOrange);
+                    return;
+                }
+                RuleModel rule = new RuleModel { ruleExtension = extension, ruleIncludes = includes, rulePath = path,
+                                                 ruleIsCaseSensetive = isCaseSensetive };
+                DBConnection.UpdateRule(id, rule);
+                messageLabelFunc(string.Format(resourceManager.GetString("ruleUpdatedSuccessfully"), extension),
+                                 Color.Lime);
+                ExtensionTextBox.Text = "";
+                includesTextBox.Text = "";
+                pathTextBox.Text = "";
+                GridUpdater gu = new GridUpdater(rulesGrid);
+                gu.UpdateRules();
+                Close();
             }
-            RuleModel rule = new RuleModel { ruleExtension = extension, ruleIncludes = includes, rulePath = path, ruleIsCaseSensetive = isCaseSensetive };
-            DBConnection.DeleteRule(id);
-            DBConnection.AddRule(rule);
-            messageLabelFunc(string.Format(resourceManager.GetString("ruleUpdatedSuccessfully"), extension), Color.Lime);
-            ExtensionTextBox.Text = "";
-            includesTextBox.Text = "";
-            pathTextBox.Text = "";
-            GridUpdater gu = new GridUpdater(rulesGrid);
-            gu.UpdateRules();
-            Close();
+            catch (Exception error)
+            {
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void messageLabelFunc(string message, Color color)
@@ -80,6 +91,7 @@ namespace TrashVanish.Forms.RulesForms
             {
                 messageLabel.Hide();
                 timer.Stop();
+                timer.Dispose();
             };
             timer.Start();
         }

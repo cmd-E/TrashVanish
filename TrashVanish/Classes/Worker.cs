@@ -1,309 +1,198 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Data;
-using System.Diagnostics;
-using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Resources;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using TrashVanish.Classes;
 
 namespace TrashVanish
 {
-    internal class Worker
+    public enum FileOutcome
     {
-        private readonly RichTextBox box;
-        private ResourceManager resourceManager;
-
-        public Worker(RichTextBox richTextBox)
+        Copied,
+        Moved,
+        SkippedExisting,
+        CopyFailed,
+        DeleteFailed,
+        NoMatch
+    }
+    public sealed class FileProgress
+    {
+        public string Source, Destination, Error;
+        public FileOutcome Outcome;
+    }
+    public sealed class RunResult
+    {
+        public int Copied, Moved, Failed, Skipped;
+    }
+    internal sealed class PlannedRule
+    {
+        public long ID;
+        public string Extension, Includes, Destination;
+        public bool CaseSensitive;
+        public int Group;
+        public bool Matches(string file)
         {
-            box = richTextBox;
-            resourceManager = new ResourceManager("TrashVanish.lang_" + System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, Assembly.GetExecutingAssembly());
+            return string.Equals(Path.GetExtension(file), Extension, StringComparison.OrdinalIgnoreCase) &&
+                   Path.GetFileName(file).IndexOf(Includes, CaseSensitive ? StringComparison.Ordinal
+                                                                          : StringComparison.OrdinalIgnoreCase) >= 0;
         }
-
-        private readonly List<string> affectedFiles = new List<string>();
-
-        /// <summary>
-        /// Запускает потоки для каждой задачи
-        /// </summary>
-        /// <param name="cwd">Текущая рабочая директория (рабочий стол)</param>
-        /// <param name="rules">Список правил</param>
-        /// <param name="sets">Список наборов</param>
-        /// <param name="deleteFile">Флаг удаления файлов после копирования</param>
-        /// <param name="owFiles">Флаг перезаписи файлов если уже есть в конечной директории</param>
-        async public void RunVanisher(string cwd, List<RuleModel> rules, List<SetModel> sets, bool deleteFile, bool owFiles)
+    }
+    internal static class RulePlanner
+    {
+        private static long Number(string value)
         {
-            Stopwatch watch = new Stopwatch();
-            watch.Start();
-            Logger(resourceManager.GetString("start"), Color.Lime);
-            List<RuleModel> complexRules = new List<RuleModel>();
-            List<RuleModel> simpleRules = new List<RuleModel>();
-            List<Task> tasks = new List<Task>();
-            foreach (RuleModel rule in rules)
-            {
-                if (rule.ruleIncludes != "")
-                {
-                    complexRules.Add(rule);
-                }
-                else
-                {
-                    simpleRules.Add(rule);
-                }
-            }
-            List<RuleModel> caseSensitiveRules = new List<RuleModel>();
-            List<RuleModel> caseInsensitiveRules = new List<RuleModel>();
-            foreach (RuleModel rule in complexRules)
-            {
-                if (rule.ruleIsCaseSensetive == 1)
-                {
-                    caseSensitiveRules.Add(rule);
-                    //complexRules.Remove(rule);// В комплексных правилах не останется правил с учетом регистра UPD нельзя удалять элементы кллекции по которой ходишь циклом
-                }
-                else
-                {
-                    caseInsensitiveRules.Add(rule);
-                }
-            }
-            foreach (RuleModel rule in caseSensitiveRules)
-            {
-                tasks.Add(Task.Factory.StartNew(() =>
-                {
-                    Work(cwd, rule.ruleExtension, rule.ruleIncludes, rule.rulePath, deleteFile, owFiles, rule.ruleIsCaseSensetive);
-                }));
-            }
-            await Task.WhenAll(tasks.ToArray());
-            Logger(resourceManager.GetString("caseSensetiveTasksWithCmplxRulesAreDone"), Color.MediumSpringGreen);
-            tasks.Clear();
-            foreach (RuleModel rule in caseInsensitiveRules)
-            {
-                tasks.Add(Task.Factory.StartNew(() =>
-                {
-                    Work(cwd, rule.ruleExtension, rule.ruleIncludes, rule.rulePath, deleteFile, owFiles, rule.ruleIsCaseSensetive);
-                }));
-            }
-            await Task.WhenAll(tasks.ToArray());
-            Logger(resourceManager.GetString("complexRulesAreDone"), Color.MediumSpringGreen);
-            tasks.Clear();
-            foreach (RuleModel rule in simpleRules)
-            {
-                tasks.Add(Task.Factory.StartNew(() =>
-                {
-                    Work(cwd, rule.ruleExtension, rule.ruleIncludes, rule.rulePath, deleteFile, owFiles, rule.ruleIsCaseSensetive);
-                }));
-            }
-            await Task.WhenAll(tasks.ToArray());
-            complexRules.Clear();
-            simpleRules.Clear();
-            Logger(resourceManager.GetString("rulesAreDone"), Color.MediumSpringGreen);
-            tasks.Clear();
-            foreach (SetModel set in sets)
-            {
-                foreach (setExtensionModel ext in set.extensions)
-                {
-                    if (ext.includes != "")
-                    {
-                        complexRules.Add(new RuleModel { ruleExtension = ext.extension, ruleIncludes = ext.includes, ruleIsCaseSensetive = set.isCaseSensetive, rulePath = set.targetPath });
-                    }
-                    else
-                    {
-                        simpleRules.Add(new RuleModel { ruleExtension = ext.extension, ruleIncludes = ext.includes, ruleIsCaseSensetive = set.isCaseSensetive, rulePath = set.targetPath });
-                    }
-                }
-            }
-            caseSensitiveRules.Clear();
-            caseInsensitiveRules.Clear();
-
-            foreach (RuleModel rule in complexRules)
-            {
-                if (rule.ruleIsCaseSensetive == 1)
-                {
-                    caseSensitiveRules.Add(rule);
-                }
-                else
-                {
-                    caseInsensitiveRules.Add(rule);
-                }
-            }
-
-            foreach (RuleModel rule in caseSensitiveRules)
-            {
-                tasks.Add(Task.Factory.StartNew(() =>
-                {
-                    Work(cwd, rule.ruleExtension, rule.ruleIncludes, rule.rulePath, deleteFile, owFiles, rule.ruleIsCaseSensetive);
-                }));
-            }
-            await Task.WhenAll(tasks.ToArray());
-            Logger(resourceManager.GetString("caseSensetiveSetsWithCmplxRulesAreDone"), Color.MediumSpringGreen);
-            tasks.Clear();
-            foreach (RuleModel rule in caseInsensitiveRules)
-            {
-                tasks.Add(Task.Factory.StartNew(() =>
-                {
-                    Work(cwd, rule.ruleExtension, rule.ruleIncludes, rule.rulePath, deleteFile, owFiles, rule.ruleIsCaseSensetive);
-                }));
-            }
-            await Task.WhenAll(tasks.ToArray());
-            Logger(resourceManager.GetString("complexSetsAreDone"), Color.MediumSpringGreen);
-            tasks.Clear();
-            foreach (RuleModel rule in simpleRules)
-            {
-                tasks.Add(Task.Factory.StartNew(() =>
-                {
-                    Work(cwd, rule.ruleExtension, rule.ruleIncludes, rule.rulePath, deleteFile, owFiles, rule.ruleIsCaseSensetive);
-                }));
-            }
-            await Task.WhenAll(tasks.ToArray());
-            Logger(resourceManager.GetString("setsAreDone"), Color.MediumSpringGreen);
-            await Task.WhenAll(tasks.ToArray());
-            watch.Stop();
-            Logger(string.Format(resourceManager.GetString("tasksAreDoneForElapsedTime"), watch.ElapsedMilliseconds), Color.Lime);
+            long n;
+            if (!long.TryParse(value, out n))
+                throw new FormatException("Invalid persisted rule ID");
+            return n;
         }
-
-        private void Work(string cwd, string extension, string includes, string targetpath, bool deleteFile, bool owFiles, int isCaseSensetive)
+        public static IList<PlannedRule> Build(IEnumerable<RuleModel> rules, IEnumerable<SetModel> sets)
         {
-            int filesCopied = 0;
-            int errors = 0;
-            string[] files = Directory.GetFiles(cwd, "*" + includes + "*" + extension);
-            if (files.Length < 1)
+            var result = new List<PlannedRule>();
+            foreach (var rule in rules)
+                result.Add(Create(Number(rule.ruleID), 0, rule.ruleExtension, rule.ruleIncludes, rule.rulePath,
+                                  rule.ruleIsCaseSensetive == 1));
+            foreach (var set in sets.OrderBy(s => Number(s.setID)))
+                foreach (var extension in set.extensions.OrderBy(e => Number(e.extensionID)))
+                    result.Add(Create(Number(extension.extensionID), 3, extension.extension, extension.includes,
+                                      set.targetPath, set.isCaseSensetive == 1));
+            return result.OrderBy(r => r.Group).ThenBy(r => r.ID).ToList().AsReadOnly();
+        }
+        private static PlannedRule Create(long id, int group, string extension, string includes, string destination,
+                                          bool sensitive)
+        {
+            includes = includes ?? "";
+            if (string.IsNullOrWhiteSpace(extension) || !extension.StartsWith(".") ||
+                extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                throw new ArgumentException("Invalid extension in saved configuration");
+            if (!Path.IsPathRooted(destination))
+                throw new ArgumentException("Destination must be an absolute path");
+            return new PlannedRule { ID = id,
+                                     Group = group + (includes.Length == 0 ? 2
+                                                      : sensitive          ? 0
+                                                                           : 1),
+                                     Extension = extension,
+                                     Includes = includes,
+                                     Destination = Path.GetFullPath(destination),
+                                     CaseSensitive = sensitive };
+        }
+    }
+    internal sealed class Worker
+    {
+        public Task<RunResult> RunVanisherAsync(string source, IList<RuleModel> rules, IList<SetModel> sets,
+                                                bool deleteAfterCopy, bool overwrite, IProgress<FileProgress> progress,
+                                                CancellationToken cancellation)
+        {
+            var plan = RulePlanner.Build(rules, sets);
+            return Task.Run(() => Run(source, plan, deleteAfterCopy, overwrite, progress, cancellation), cancellation);
+        }
+        internal static RunResult Run(string source, IList<PlannedRule> plan, bool deleteAfterCopy, bool overwrite,
+                                      IProgress<FileProgress> progress, CancellationToken cancellation)
+        {
+            var result = new RunResult();
+            var files = Directory.GetFiles(source).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
+            foreach (var file in files)
             {
-                if (includes != "")
+                cancellation.ThrowIfCancellationRequested();
+                bool matched = false;
+                foreach (var rule in plan.Where(r => r.Matches(file)))
                 {
-                    Logger(string.Format(resourceManager.GetString("noFilesForExtAndInclude"), extension, includes), Color.DarkOrange);
-                }
-                else
-                {
-                    Logger(string.Format(resourceManager.GetString("noFilesForExt"), extension), Color.DarkOrange);
-                }
-
-                return;
-            }
-            if (!Directory.Exists(targetpath))
-            {
-                Directory.CreateDirectory(targetpath);
-            }
-            foreach (string file in files)
-            {
-                bool isContains = false;
-                bool doNotDelete = false;
-                string filename = Path.GetFileName(file);
-                string destination = Path.Combine(targetpath, filename);
-
-                if (isCaseSensetive == 1)
-                {
-                    if (filename.Contains(includes))
+                    matched = true;
+                    string destination = Path.Combine(rule.Destination, Path.GetFileName(file));
+                    string staging = null;
+                    bool committed = false;
+                    try
                     {
-                        isContains = true;
-                    }
-                }
-                else
-                {
-                    if (filename.ToLower().Contains(includes.ToLower()))
-                    {
-                        isContains = true;
-                    }
-                }
-                if (isContains)
-                {
-                    if (File.Exists(destination) & !owFiles)
-                    {
-                        Logger(string.Format(resourceManager.GetString("fileAlreadyExist"), filename, targetpath), Color.Gold);
-                        continue;
-                    }
-                    if (NotAffected(file))
-                    {
-                        try
+                        if (string.Equals(Path.GetFullPath(file), Path.GetFullPath(destination),
+                                          StringComparison.OrdinalIgnoreCase))
+                            throw new IOException("Source and destination refer to the same path");
+                        Directory.CreateDirectory(rule.Destination);
+                        if (File.Exists(destination) && !overwrite)
                         {
-                            File.Copy(file, destination, owFiles);
+                            result.Skipped++;
+                            Report(progress, file, destination, FileOutcome.SkippedExisting, null);
+                            continue;
                         }
-                        catch (UnauthorizedAccessException uae)
+                        // Refuse aliases/reparse-point files and directories rather than deleting through them.
+                        if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                            throw new IOException("Reparse-point sources are not supported");
+                        var directory = new DirectoryInfo(rule.Destination);
+                        while (directory != null)
                         {
-                            //Logger(uae.Message + ". Чтобы скопировать файл в \"" + targetpath + "\" запустите программу от имени администратора", Color.Maroon);
-                            Logger(string.Format(resourceManager.GetString("unauthorizedAccessExceptionMessage"), uae.Message, targetpath), Color.Maroon);
-                            errors++;
-                            doNotDelete = true;
+                            if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                                throw new IOException("Reparse-point destinations are not supported");
+                            directory = directory.Parent;
                         }
-                        catch (Exception e)
+                        staging = Path.Combine(rule.Destination, "." + Guid.NewGuid().ToString("N") + ".tmp");
+                        File.Copy(file, staging, false);
+                        if (File.Exists(destination))
                         {
-                            Logger(e.Message, Color.Maroon);
-                            errors++;
-                            doNotDelete = true;
+                            if (!overwrite)
+                                throw new IOException("Destination appeared during copy");
+                            if ((File.GetAttributes(destination) & FileAttributes.ReparsePoint) != 0)
+                                throw new IOException("Reparse-point destination");
+                            File.Replace(staging, destination, null);
                         }
-                        affectedFiles.Add(file);
+                        else
+                            File.Move(staging, destination);
+                        staging = null;
+                        committed = true;
+                        result.Copied++;
+                        if (deleteAfterCopy)
+                        {
+                            cancellation.ThrowIfCancellationRequested();
+                            File.Delete(file);
+                            result.Moved++;
+                            Report(progress, file, destination, FileOutcome.Moved, null);
+                        }
+                        else
+                            Report(progress, file, destination, FileOutcome.Copied, null);
+                        break;
                     }
-                    else
+                    catch (Exception error)
                     {
-                        continue;
+                        if (!(error is IOException) && !(error is UnauthorizedAccessException) &&
+                            !(error is ArgumentException) && !(error is System.Security.SecurityException))
+                            throw;
+                        result.Failed++;
+                        Report(progress, file, destination,
+                               committed ? FileOutcome.DeleteFailed : FileOutcome.CopyFailed, error.Message);
+                        if (committed)
+                            break; // Never create another copy after a successful finalization.
                     }
-                    filesCopied++;
-                    if (deleteFile)
+                    finally
                     {
-                        if (!doNotDelete) // Если произошла ошибка при копировании - оставить оригинал
+                        if (staging != null && File.Exists(staging))
                         {
                             try
                             {
-                                File.Delete(file);
+                                File.Delete(staging);
                             }
-                            catch (Exception e)
+                            catch (IOException)
                             {
-                                Logger(e.Message, Color.Maroon);
-                                errors++;
+                            }
+                            catch (UnauthorizedAccessException)
+                            {
                             }
                         }
                     }
                 }
-            }
-            if (errors != 0)
-            {
-                Logger(string.Format(resourceManager.GetString("notAllFilesWithExtWereMoved"), extension), Color.OrangeRed);
-            }
-            else
-            {
-                if (includes != "")
+                if (!matched)
                 {
-                    Logger(string.Format(resourceManager.GetString("taskCompletedWithIncludes"), extension, includes, filesCopied), Color.Lime);
-                }
-                else
-                {
-                    Logger(string.Format(resourceManager.GetString("taskCompleted"), extension, filesCopied), Color.Lime);
+                    result.Skipped++;
+                    Report(progress, file, null, FileOutcome.NoMatch, null);
                 }
             }
+            return result;
         }
-
-        private bool NotAffected(string file)
+        private static void Report(IProgress<FileProgress> progress, string source, string destination,
+                                   FileOutcome outcome, string error)
         {
-            foreach (string affectedFile in affectedFiles)
-            {
-                if (file == affectedFile)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private void Logger(string message, Color color)
-        {
-            Action action = () =>
-            {
-                box.SelectionStart = box.TextLength;
-                box.SelectionLength = 0;
-
-                box.SelectionColor = color;
-                box.AppendText("[" + DateTime.Now + "]" + " - " + message + "\r\n");
-                box.SelectionColor = box.ForeColor;
-            };
-            if (box.InvokeRequired)
-            {
-                box.Invoke(action);
-            }
-            else
-            {
-                action();
-            }
+            if (progress != null)
+                progress.Report(
+                    new FileProgress { Source = source, Destination = destination, Outcome = outcome, Error = error });
         }
     }
 }

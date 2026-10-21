@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -22,11 +22,12 @@ namespace TrashVanish
         /// </summary>
         public void UpdateRules()
         {
-            dataGrid.Rows.Clear();
             List<RuleModel> rules = DBConnection.LoadRules();
+            dataGrid.Rows.Clear();
             foreach (RuleModel rule in rules)
             {
-                dataGrid.Rows.Add(rule.ruleID, rule.ruleExtension, rule.ruleIncludes, rule.ruleIsCaseSensetive, rule.rulePath);
+                dataGrid.Rows.Add(rule.ruleID, rule.ruleExtension, rule.ruleIncludes, rule.ruleIsCaseSensetive,
+                                  rule.rulePath);
             }
         }
 
@@ -35,11 +36,12 @@ namespace TrashVanish
         /// </summary>
         public void UpdateExtensionsSets()
         {
-            dataGrid.Rows.Clear();
             List<SetModel> sets = DBConnection.LoadSets();
+            dataGrid.Rows.Clear();
             foreach (SetModel set in sets)
             {
-                dataGrid.Rows.Add(set.setID, set.setName, stringifyExtensions(set.extensions), set.isCaseSensetive, set.targetPath); // make string with all extensions
+                dataGrid.Rows.Add(set.setID, set.setName, stringifyExtensions(set.extensions), set.isCaseSensetive,
+                                  set.targetPath); // make string with all extensions
             }
         }
 

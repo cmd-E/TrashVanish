@@ -1,421 +1,220 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data.SQLite;
 using System.IO;
-using System.Reflection;
-using System.Resources;
-using System.Windows.Forms;
+using System.Linq;
 using TrashVanish.Classes;
 
 namespace TrashVanish
 {
-    public class DBConnection
+    // Persistence never displays dialogs. UI operation boundaries own presentation.
+    public static class DBConnection
     {
-        private static ResourceManager resourceManager = new ResourceManager("TrashVanish.lang_" + System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, Assembly.GetExecutingAssembly());
-
-        /// <summary>
-        /// Load all rules from database and create list of RuleModels
-        /// </summary>
-        /// <returns>list of RuleModels</returns>
-        public static List<RuleModel> LoadRules()
+        private static SQLiteConnection Open()
         {
-            List<RuleModel> rules = new List<RuleModel>();
-            try
-            {
-                using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
-                {
-                    connection.Open();
-                    string sqlcommand = "SELECT * FROM rulesTable";
-                    SQLiteCommand command = new SQLiteCommand(sqlcommand, connection);
-                    command.Prepare();
-                    SQLiteDataReader reader = command.ExecuteReader();
-                    while (reader.Read())
-                    {
-                        rules.Add(new RuleModel
-                        {
-                            //ruleID = Convert.ToString(reader["id"]),
-                            ruleID = Convert.ToString(reader["id"]),
-                            ruleExtension = reader["extension"] as string,
-                            ruleIncludes = reader["includes"] as string,
-                            rulePath = reader["path"] as string,
-                            ruleIsCaseSensetive = Convert.ToInt32(reader["isCaseSensetive"]),
-                        });
-                    }
-                    reader.Close();
-                }
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show(e.Message, resourceManager.GetString("dbError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            return rules;
+            var builder =
+                new SQLiteConnectionStringBuilder(ConfigurationManager.ConnectionStrings["Default"].ConnectionString);
+            if (!Path.IsPathRooted(builder.DataSource))
+                builder.DataSource = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, builder.DataSource);
+            var connection = new SQLiteConnection(builder.ConnectionString);
+            connection.Open();
+            return connection;
         }
-
-        /// <summary>
-        /// Checks if database is exist. If not, creates new
-        /// </summary>
         public static void CheckDB()
         {
-            if (!File.Exists(@".\trashVanish.db"))
+            using (var connection = Open()) using (var transaction = connection.BeginTransaction())
             {
-                string[] sqlCreateCommands = { @"CREATE TABLE ""extensionSetsTable"" (
-                                                ""id""    INTEGER NOT NULL UNIQUE,
-                                                ""name""  TEXT NOT NULL UNIQUE,
-                                                ""isCaseSensetive""   INTEGER NOT NULL,
-                                                ""targetPath""    TEXT NOT NULL,
-                                                PRIMARY KEY(""id"" AUTOINCREMENT)
-                                            )",
-                                                @"CREATE TABLE ""extensionsForSetsTable"" (
-                                                ""id""    INTEGER NOT NULL UNIQUE,
-                                                ""setNameId"" INTEGER NOT NULL,
-                                                ""extension"" TEXT NOT NULL,
-                                                ""includes""  TEXT NOT NULL,
-                                                PRIMARY KEY(""id"" AUTOINCREMENT)
-                                            )",
-                                                @"CREATE TABLE ""rulesTable"" (
-                                                ""id""    INTEGER NOT NULL UNIQUE,
-                                                ""extension"" TEXT NOT NULL,
-                                                ""includes""  TEXT,
-                                                ""isCaseSensetive""   INTEGER NOT NULL,
-                                                ""path""  TEXT NOT NULL,
-                                                PRIMARY KEY(""id"" AUTOINCREMENT)
-                                            )"};
-                try
-                {
-                    SQLiteConnection.CreateFile(@".\trashVanish.db");
-                    using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
-                    {
-                        connection.Open();
-                        foreach (string sqlCreateCommand in sqlCreateCommands)
-                        {
-                            SQLiteCommand command = new SQLiteCommand(sqlCreateCommand, connection);
-                            command.ExecuteNonQuery();
-                        }
-                    }
-                }
-                catch (Exception e)
-                {
-                    MessageBox.Show(e.Message, resourceManager.GetString("dbCreationError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    if (File.Exists(@".\trashVanish.db"))
-                    {
-                        try
-                        {
-                            File.Delete(@".\trashVanish.db");
-                        }
-                        catch
-                        {
-                            MessageBox.Show(string.Format(resourceManager.GetString("dbDeleteError"), Environment.CurrentDirectory));
-                        }
-                    }
-                }
+                Execute(
+                    connection, transaction,
+                    "CREATE TABLE IF NOT EXISTS rulesTable(id INTEGER PRIMARY KEY AUTOINCREMENT,extension TEXT NOT " +
+                        "NULL,includes TEXT,isCaseSensetive INTEGER NOT NULL,path TEXT NOT NULL)");
+                Execute(
+                    connection, transaction,
+                    "CREATE TABLE IF NOT EXISTS extensionSetsTable(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT " +
+                        "NOT NULL UNIQUE,isCaseSensetive INTEGER NOT NULL,targetPath TEXT NOT NULL)");
+                Execute(connection, transaction,
+                        "CREATE TABLE IF NOT EXISTS extensionsForSetsTable(id INTEGER PRIMARY KEY " +
+                            "AUTOINCREMENT,setNameId INTEGER NOT NULL,extension TEXT NOT NULL,includes TEXT NOT NULL)");
+                transaction.Commit();
             }
         }
-
-        /// <summary>
-        /// Adds rule in database
-        /// </summary>
-        /// <param name="rule">rule object</param>
+        private static int Execute(SQLiteConnection connection, SQLiteTransaction transaction, string sql,
+                                   params object[] values)
+        {
+            using (var command = new SQLiteCommand(sql, connection, transaction))
+            {
+                for (int i = 0; i < values.Length; i++)
+                    command.Parameters.AddWithValue("@p" + i, values[i] ?? DBNull.Value);
+                return command.ExecuteNonQuery();
+            }
+        }
+        public static List<RuleModel> LoadRules()
+        {
+            using (var connection = Open()) using (
+                var command =
+                    new SQLiteCommand("SELECT id,extension,includes,isCaseSensetive,path FROM rulesTable ORDER BY id",
+                                      connection)) using (var reader = command.ExecuteReader())
+            {
+                var rules = new List<RuleModel>();
+                while (reader.Read())
+                    rules.Add(new RuleModel { ruleID = Convert.ToString(reader["id"]),
+                                              ruleExtension = Convert.ToString(reader["extension"]),
+                                              ruleIncludes = Convert.ToString(reader["includes"]),
+                                              ruleIsCaseSensetive = Convert.ToInt32(reader["isCaseSensetive"]),
+                                              rulePath = Convert.ToString(reader["path"]) });
+                return rules;
+            }
+        }
+        public static bool IsRuleExist(string extension, string includes, int sensitive, string excludedID = null)
+        {
+            using (var connection = Open()) using (
+                var command =
+                    new SQLiteCommand("SELECT COUNT(*) FROM rulesTable WHERE extension=@extension COLLATE " +
+                                          "NOCASE AND COALESCE(includes,'')=@includes AND " +
+                                          "isCaseSensetive=@sensitive AND (@excluded IS NULL OR id<>@excluded)",
+                                      connection))
+            {
+                command.Parameters.AddWithValue("@extension", extension);
+                command.Parameters.AddWithValue("@includes", includes);
+                command.Parameters.AddWithValue("@sensitive", sensitive);
+                command.Parameters.AddWithValue("@excluded", (object)excludedID ?? DBNull.Value);
+                return Convert.ToInt32(command.ExecuteScalar()) > 0;
+            }
+        }
+        private static void SaveRule(string id, RuleModel rule)
+        {
+            using (var connection = Open()) using (var transaction = connection.BeginTransaction())
+            {
+                using (var duplicate = new SQLiteCommand(
+                           "SELECT COUNT(*) FROM rulesTable WHERE extension=@e COLLATE NOCASE AND " +
+                               "COALESCE(includes,'')=@i AND isCaseSensetive=@s AND (@id IS NULL OR id<>@id)",
+                           connection, transaction))
+                {
+                    duplicate.Parameters.AddWithValue("@e", rule.ruleExtension);
+                    duplicate.Parameters.AddWithValue("@i", rule.ruleIncludes ?? "");
+                    duplicate.Parameters.AddWithValue("@s", rule.ruleIsCaseSensetive);
+                    duplicate.Parameters.AddWithValue("@id", (object)id ?? DBNull.Value);
+                    if (Convert.ToInt32(duplicate.ExecuteScalar()) > 0)
+                        throw new InvalidOperationException("A matching rule already exists");
+                }
+                int changed;
+                if (id == null)
+                    changed = Execute(
+                        connection, transaction,
+                        "INSERT INTO rulesTable(extension,includes,isCaseSensetive,path) VALUES(@p0,@p1,@p2,@p3)",
+                        rule.ruleExtension, rule.ruleIncludes, rule.ruleIsCaseSensetive, rule.rulePath);
+                else
+                    changed = Execute(
+                        connection, transaction,
+                        "UPDATE rulesTable SET extension=@p0,includes=@p1,isCaseSensetive=@p2,path=@p3 WHERE id=@p4",
+                        rule.ruleExtension, rule.ruleIncludes, rule.ruleIsCaseSensetive, rule.rulePath, id);
+                if (changed != 1)
+                    throw new InvalidOperationException("Rule not found");
+                transaction.Commit();
+            }
+        }
         public static void AddRule(RuleModel rule)
         {
-            using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
-            {
-                connection.Open();
-                using (SQLiteTransaction transaction = connection.BeginTransaction())
-                {
-                    try
-                    {
-                        SQLiteCommand cmd = new SQLiteCommand
-                        {
-                            CommandText = "insert into rulesTable (extension, includes, isCaseSensetive, path) values (@ruleExtension, @ruleIncludes, @isCaseSensetive, @rulePath)",
-                            Connection = connection
-                        };
-                        cmd.Parameters.AddWithValue("@ruleExtension", rule.ruleExtension);
-                        cmd.Parameters.AddWithValue("@ruleIncludes", rule.ruleIncludes);
-                        cmd.Parameters.AddWithValue("@isCaseSensetive", rule.ruleIsCaseSensetive);
-                        cmd.Parameters.AddWithValue("@rulePath", rule.rulePath);
-                        cmd.ExecuteNonQuery();
-                        transaction.Commit();
-                    }
-                    catch (Exception e)
-                    {
-                        MessageBox.Show(e.Message, resourceManager.GetString("dbInteractionError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception exRollBack)
-                        {
-                            MessageBox.Show(exRollBack.Message, resourceManager.GetString("dbRollBackError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        }
-                    }
-                }
-            }
+            SaveRule(null, rule);
         }
-
-        /// <summary>
-        /// Deletes rules by their id
-        /// </summary>
-        /// <param name="ruleID">id of the rule</param>
-        public static void DeleteRule(string ruleID)
+        public static void UpdateRule(string id, RuleModel rule)
         {
-            using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
-            {
-                connection.Open();
-                using (SQLiteTransaction transaction = connection.BeginTransaction())
-                {
-                    try
-                    {
-                        SQLiteCommand sqlComm = connection.CreateCommand();
-                        sqlComm.CommandText = "DELETE FROM rulesTable WHERE id=@id;";
-                        sqlComm.Parameters.AddWithValue("@id", ruleID);
-                        sqlComm.ExecuteNonQuery();
-                        transaction.Commit();
-                    }
-                    catch (Exception e)
-                    {
-                        MessageBox.Show(e.Message, resourceManager.GetString("dbInteractionError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception exRollBack)
-                        {
-                            MessageBox.Show(exRollBack.Message, resourceManager.GetString("dbRollBackError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        }
-                    }
-                }
-            }
+            SaveRule(id, rule);
         }
-
-        public static bool IsRuleExist(string extension, string includes, int isCaseSensetive)
+        public static void DeleteRule(string id)
         {
-            using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
-            {
-                connection.Open();
-                SQLiteCommand cmd = new SQLiteCommand(connection)
-                {
-                    CommandText = "SELECT COUNT(id) FROM rulesTable WHERE extension=@extension AND includes=@includes AND isCaseSensetive=@isCaseSensetive"
-                };
-                cmd.Parameters.AddWithValue("@extension", extension);
-                cmd.Parameters.AddWithValue("@includes", includes);
-                cmd.Parameters.AddWithValue("@isCaseSensetive", isCaseSensetive);
-                int rowCount = Convert.ToInt32(cmd.ExecuteScalar());
-                return rowCount > 0;
-            }
+            using (var connection = Open()) Execute(connection, null, "DELETE FROM rulesTable WHERE id=@p0", id);
         }
-
-        private static string LoadConnectionString(string id = "Default")
-        {
-            return ConfigurationManager.ConnectionStrings[id].ConnectionString;
-        }
-
-        /// <summary>
-        /// Добавляет setName в extesionsSetName (таблица, содержащая названия наборов), а extensionsSet в extensionsSetExtensions (таблица, содержащая расширение и id набора, к которому оно принадлежит)
-        /// </summary>
-        /// <param name="setName">Название набора</param>
-        /// <param name="extensionsSet">Расширения входящие в набор</param>
-        /// <param name="targetPath">Путь в который пойдут файлы набора</param>
-        /// <param name="isCaseSensetive">Проверять регистр или нет</param>
-        ///
-        ///
-        public static void AddSet(string setName, Dictionary<string, string> extensionsSet, string targetPath, int isCaseSensetive)
-        {
-            // add name to extesionsSetName
-            using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
-            {
-                connection.Open();
-                SQLiteTransaction transaction = connection.BeginTransaction();
-                try
-                {
-                    SQLiteCommand cmd = new SQLiteCommand
-                    {
-                        Transaction = transaction,
-                        CommandText = "INSERT INTO extensionSetsTable (name, isCaseSensetive, targetPath) VALUES (@Name, @isCaseSensetive, @targetPath)",
-                        Connection = connection
-                    };
-                    cmd.Parameters.AddWithValue("@Name", setName);
-                    cmd.Parameters.AddWithValue("@isCaseSensetive", isCaseSensetive);
-                    cmd.Parameters.AddWithValue("@targetPath", targetPath);
-                    cmd.ExecuteNonQuery();
-                    cmd.Parameters.Clear();
-                    int setID = (int)connection.LastInsertRowId;
-                    cmd.CommandText = "INSERT INTO extensionsForSetsTable (setNameId, extension, includes) VALUES (@setNameId, @extension, @includes)";
-                    cmd.Parameters.AddWithValue("@setNameId", setID);
-                    foreach (KeyValuePair<string, string> extEntry in extensionsSet)
-                    {
-                        cmd.Parameters.AddWithValue("@extension", extEntry.Key);
-                        cmd.Parameters.AddWithValue("@includes", extEntry.Value);
-                        cmd.ExecuteNonQuery();
-                    }
-                    transaction.Commit();
-                }
-                catch (Exception e)
-                {
-                    MessageBox.Show(e.Message, resourceManager.GetString("dbInteractionError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-
-                    try
-                    {
-                        transaction.Rollback();
-                    }
-                    catch (Exception exRollBack)
-                    {
-                        MessageBox.Show(exRollBack.Message, resourceManager.GetString("dbRollBackError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Loads all sets from database
-        /// </summary>
-        /// <returns>Список типа SetModel </returns>
         public static List<SetModel> LoadSets()
         {
-            List<SetModel> setsList = new List<SetModel>();
-            List<setExtensionModel> extensionsList = new List<setExtensionModel>();
-            try
+            var sets = new List<SetModel>();
+            var lookup = new Dictionary<string, SetModel>();
+            using (var connection = Open())
             {
-                using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
+                using (var command = new SQLiteCommand(
+                           "SELECT id,name,isCaseSensetive,targetPath FROM extensionSetsTable ORDER BY id",
+                           connection)) using (var reader = command.ExecuteReader()) while (reader.Read())
                 {
-                    connection.Open();
-                    using (SQLiteCommand command = new SQLiteCommand("SELECT * FROM extensionSetsTable", connection))
-                    {
-                        SQLiteDataReader reader = command.ExecuteReader();
-                        while (reader.Read())
-                        {
-                            setsList.Add(new SetModel
-                            {
-                                setID = Convert.ToString(reader["id"]),
-                                setName = reader["name"] as string,
-                                targetPath = reader["targetPath"] as string,
-                                isCaseSensetive = Convert.ToInt32(reader["isCaseSensetive"]),
-                            });
-                        }
-                        reader.Close();
-                        command.CommandText = "SELECT * FROM extensionsForSetsTable";
-                        reader = command.ExecuteReader();
-                        while (reader.Read())
-                        {
-                            extensionsList.Add(new setExtensionModel
-                            {
-                                extensionID = Convert.ToString(reader["id"]),
-                                setNameID = Convert.ToString(reader["setNameId"]),
-                                extension = reader["extension"] as string,
-                                includes = reader["includes"] as string,
-                            });
-                        }
-                        reader.Close();
-                        foreach (SetModel set in setsList) // This needs to be optimized
-                        {
-                            List<setExtensionModel> sortedExtensions = new List<setExtensionModel>();
-                            foreach (setExtensionModel extension in extensionsList)
-                            {
-                                if (set.setID == extension.setNameID)
-                                {
-                                    sortedExtensions.Add(extension);
-                                }
-                            }
-                            set.extensions = sortedExtensions;
-                        }
-                    }
+                    var set = new SetModel { setID = Convert.ToString(reader["id"]),
+                                             setName = Convert.ToString(reader["name"]),
+                                             isCaseSensetive = Convert.ToInt32(reader["isCaseSensetive"]),
+                                             targetPath = Convert.ToString(reader["targetPath"]),
+                                             extensions = new List<setExtensionModel>() };
+                    sets.Add(set);
+                    lookup.Add(set.setID, set);
+                }
+                using (var command = new SQLiteCommand(
+                           "SELECT id,setNameId,extension,includes FROM extensionsForSetsTable ORDER BY id",
+                           connection)) using (var reader = command.ExecuteReader()) while (reader.Read())
+                {
+                    var extension = new setExtensionModel { extensionID = Convert.ToString(reader["id"]),
+                                                            setNameID = Convert.ToString(reader["setNameId"]),
+                                                            extension = Convert.ToString(reader["extension"]),
+                                                            includes = Convert.ToString(reader["includes"]) };
+                    SetModel set;
+                    if (!lookup.TryGetValue(extension.setNameID, out set))
+                        throw new InvalidDataException("Orphan extension entry in database");
+                    set.extensions.Add(extension);
                 }
             }
-            catch (Exception e)
-            {
-                MessageBox.Show(e.Message, resourceManager.GetString("dbInteractionError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            return setsList;
+            return sets;
         }
-
-        /// <summary>
-        /// Достает набор из бд по идентификатору
-        /// </summary>
-        /// <param name="id">Идентификатор набора</param>
-        /// <returns>Набор типа SetModel</returns>
         public static SetModel LoadSetByID(string id)
         {
-            SetModel set = new SetModel();
-            List<setExtensionModel> extensionsList = new List<setExtensionModel>();
-            try
-            {
-                using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
-                {
-                    connection.Open();
-                    using (SQLiteCommand command = new SQLiteCommand("SELECT * FROM extensionSetsTable WHERE id=@id", connection))
-                    {
-                        command.Parameters.AddWithValue("@id", id);
-                        SQLiteDataReader reader = command.ExecuteReader();
-                        while (reader.Read())
-                        {
-                            set.setID = id;
-                            set.setName = reader["name"] as string;
-                            set.targetPath = reader["targetPath"] as string;
-                            set.isCaseSensetive = Convert.ToInt32(reader["isCaseSensetive"]);
-                        }
-                        reader.Close();
-                        command.Parameters.Clear();
-                        command.CommandText = "SELECT * FROM extensionsForSetsTable WHERE setNameId=@setNameId";
-                        command.Parameters.AddWithValue("@setNameId", id);
-                        reader = command.ExecuteReader();
-                        while (reader.Read())
-                        {
-                            extensionsList.Add(new setExtensionModel
-                            {
-                                extensionID = Convert.ToString(reader["id"]),
-                                setNameID = Convert.ToString(reader["setNameId"]),
-                                extension = reader["extension"] as string,
-                                includes = reader["includes"] as string,
-                            });
-                        }
-                        reader.Close();
-                        set.extensions = extensionsList;
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show(e.Message, resourceManager.GetString("dbInteractionError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            var set = LoadSets().SingleOrDefault(s => s.setID == id);
+            if (set == null)
+                throw new InvalidOperationException("Set not found");
             return set;
         }
-
-        /// <summary>
-        /// Deletes set by it's id
-        /// </summary>
-        /// <param name="setID">Id of set that needs to be deleted</param>
-        public static void DeleteSet(string setID)
+        public static void AddSet(string name, Dictionary<string, string> extensions, string path, int sensitive)
         {
-            using (SQLiteConnection connection = new SQLiteConnection(LoadConnectionString()))
+            SaveSet(null, name, extensions, path, sensitive);
+        }
+        public static void UpdateSet(string id, string name, Dictionary<string, string> extensions, string path,
+                                     int sensitive)
+        {
+            SaveSet(id, name, extensions, path, sensitive);
+        }
+        private static void SaveSet(string id, string name, Dictionary<string, string> extensions, string path,
+                                    int sensitive)
+        {
+            var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var extension in extensions.Keys)
+                if (!unique.Add(extension.Trim()))
+                    throw new ArgumentException("Duplicate extension");
+            using (var connection = Open()) using (var transaction = connection.BeginTransaction())
             {
-                connection.Open();
-                using (SQLiteTransaction transaction = connection.BeginTransaction())
+                if (id == null)
                 {
-                    using (SQLiteCommand command = new SQLiteCommand("DELETE FROM extensionSetsTable WHERE id=@setID", connection, transaction))
-                    {
-                        try
-                        {
-                            command.Parameters.AddWithValue("@setID", setID);
-                            command.ExecuteNonQuery();
-                            command.CommandText = "DELETE FROM extensionsForSetsTable WHERE setNameId=?";
-                            command.ExecuteNonQuery();
-                            transaction.Commit();
-                        }
-                        catch (Exception e)
-                        {
-                            MessageBox.Show(e.Message, resourceManager.GetString("dbInteractionError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-
-                            try
-                            {
-                                transaction.Rollback();
-                            }
-                            catch (Exception exRollBack)
-                            {
-                                MessageBox.Show(exRollBack.Message, resourceManager.GetString("dbRollBackError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            }
-                        }
-                    }
+                    Execute(connection, transaction,
+                            "INSERT INTO extensionSetsTable(name,isCaseSensetive,targetPath) VALUES(@p0,@p1,@p2)", name,
+                            sensitive, path);
+                    id = connection.LastInsertRowId.ToString();
                 }
+                else
+                {
+                    if (Execute(
+                            connection, transaction,
+                            "UPDATE extensionSetsTable SET name=@p0,isCaseSensetive=@p1,targetPath=@p2 WHERE id=@p3",
+                            name, sensitive, path, id) != 1)
+                        throw new InvalidOperationException("Set not found");
+                    Execute(connection, transaction, "DELETE FROM extensionsForSetsTable WHERE setNameId=@p0", id);
+                }
+                foreach (var entry in extensions)
+                    Execute(connection, transaction,
+                            "INSERT INTO extensionsForSetsTable(setNameId,extension,includes) VALUES(@p0,@p1,@p2)", id,
+                            entry.Key.Trim(), entry.Value);
+                transaction.Commit();
+            }
+        }
+        public static void DeleteSet(string id)
+        {
+            using (var connection = Open()) using (var transaction = connection.BeginTransaction())
+            {
+                Execute(connection, transaction, "DELETE FROM extensionsForSetsTable WHERE setNameId=@p0", id);
+                Execute(connection, transaction, "DELETE FROM extensionSetsTable WHERE id=@p0", id);
+                transaction.Commit();
             }
         }
     }

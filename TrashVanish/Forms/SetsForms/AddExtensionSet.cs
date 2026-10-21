@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -43,6 +43,7 @@ namespace TrashVanish.Forms.SetsForms
             {
                 messageLabel.Hide();
                 timer.Stop();
+                timer.Dispose();
             };
             timer.Start();
         }
@@ -86,36 +87,56 @@ namespace TrashVanish.Forms.SetsForms
 
         private void deleteExtensionFromListButton_Click(object sender, EventArgs e)
         {
-            extensionsList.Rows.RemoveAt(extensionsList.SelectedRows[0].Index);
+            if (extensionsList.SelectedRows.Count > 0)
+                extensionsList.Rows.RemoveAt(extensionsList.SelectedRows[0].Index);
         }
 
         private void addSetButton_Click(object sender, EventArgs e)
         {
-            if (setNameTextBox.Text.Trim() == "" || extensionsList.Rows.Count == 0 || targetPathTextBox.Text.Trim() == "")
+            try
             {
-                messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
-                return;
+
+                if (setNameTextBox.Text.Trim() == "" || extensionsList.Rows.Count == 0 ||
+                    targetPathTextBox.Text.Trim() == "")
+                {
+                    messageLabelFunc(resourceManager.GetString("ReqFieldsAreEmpty"), Color.DarkOrange);
+                    return;
+                }
+                if (!pathValidate(targetPathTextBox.Text))
+                {
+                    return;
+                }
+                string setName = setNameTextBox.Text.Trim();
+                int isCaseSensetive = isCaseSensetiveCheckBox.Checked ? 1 : 0;
+                Dictionary<string, string> setExtensionsAndIncludes =
+                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (DataGridViewRow listItem in extensionsList.Rows)
+                {
+                    if (listItem.IsNewRow)
+                        continue;
+                    string ext = Convert.ToString(listItem.Cells[0].Value).Trim();
+                    if (ext.Length == 0 || setExtensionsAndIncludes.ContainsKey(ext))
+                    {
+                        messageLabelFunc(resourceManager.GetString("duplicateExtension"), Color.DarkOrange);
+                        return;
+                    }
+                    setExtensionsAndIncludes.Add(ext, Convert.ToString(listItem.Cells[1].Value).Trim());
+                }
+                string targetPath = targetPathTextBox.Text;
+                DBConnection.AddSet(setName, setExtensionsAndIncludes, targetPath, isCaseSensetive);
+                setNameTextBox.Text = "";
+                extensionTextBox.Text = "";
+                includesTextBox.Text = "";
+                extensionsList.Rows.Clear();
+                GridUpdater gridUpdater = new GridUpdater(gridView);
+                gridUpdater.UpdateExtensionsSets();
+                messageLabelFunc(resourceManager.GetString("setAddedSuccessfully"), Color.Lime);
             }
-            if (!pathValidate(targetPathTextBox.Text))
+            catch (Exception error)
             {
-                return;
+                MessageBox.Show(error.Message, currentCulture.GlobalResourseManager.GetString("dbInteractionError"),
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            string setName = setNameTextBox.Text.Trim();
-            int isCaseSensetive = isCaseSensetiveCheckBox.Checked ? 1 : 0;
-            Dictionary<string, string> setExtensionsAndIncludes = new Dictionary<string, string>();
-            foreach (DataGridViewRow listItem in extensionsList.Rows)
-            {
-                setExtensionsAndIncludes.Add(listItem.Cells[0].Value.ToString(), listItem.Cells[1].Value.ToString());
-            }
-            string targetPath = targetPathTextBox.Text;
-            DBConnection.AddSet(setName, setExtensionsAndIncludes, targetPath, isCaseSensetive);
-            setNameTextBox.Text = "";
-            extensionTextBox.Text = "";
-            includesTextBox.Text = "";
-            extensionsList.Rows.Clear();
-            GridUpdater gridUpdater = new GridUpdater(gridView);
-            gridUpdater.UpdateExtensionsSets();
-            messageLabelFunc(resourceManager.GetString("setAddedSuccessfully"), Color.Lime);
         }
 
         private void extensionTextBox_KeyPress(object sender, KeyPressEventArgs e)
@@ -128,9 +149,9 @@ namespace TrashVanish.Forms.SetsForms
 
         private void addExtToList()
         {
-            string extension = extensionTextBox.Text;
-            string includes = includesTextBox.Text;
-            if (extensionTextBox.Text == "")
+            string extension = extensionTextBox.Text.Trim();
+            string includes = includesTextBox.Text.Trim();
+            if (extension.Length == 0)
             {
                 messageLabelFunc(resourceManager.GetString("extIsInvalid"), Color.DarkOrange);
                 return;
@@ -142,6 +163,15 @@ namespace TrashVanish.Forms.SetsForms
             if (!extValidate(extension))
             {
                 return;
+            }
+            foreach (DataGridViewRow row in extensionsList.Rows)
+            {
+                if (!row.IsNewRow &&
+                    string.Equals(Convert.ToString(row.Cells[0].Value), extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    messageLabelFunc(resourceManager.GetString("duplicateExtension"), Color.DarkOrange);
+                    return;
+                }
             }
             extensionsList.Rows.Add(extension, includes);
             includesTextBox.Text = "";
