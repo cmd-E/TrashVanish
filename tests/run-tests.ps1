@@ -24,7 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency restore failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 
 $testArgs = @('test', $testProject, '--no-build', '--no-restore', '--results-directory',
-    (Join-Path $projectRoot '.artifacts/test-results'))
+    (Join-Path $projectRoot '.artifacts/test-results'), '--logger', 'trx;LogFileName=tests.trx')
 if ($UnitOnly) { $testArgs += @('--filter', 'Category!=Integration') }
 if ($Coverage) { $testArgs += @('--collect', 'Code Coverage;Format=Cobertura') }
 & dotnet @testArgs

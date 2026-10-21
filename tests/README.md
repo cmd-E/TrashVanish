@@ -2,7 +2,7 @@
 
 `TrashVanish.Tests` is an xUnit project in `TrashVanish.sln`. It references the production assembly, with internal access granted only to the test assembly. The application still targets .NET Framework 4.6.1; the test host targets .NET Framework 4.8.
 
-On Windows, install the .NET SDK, Visual Studio desktop build tools, and the .NET Framework 4.6.1 and 4.8 targeting packs. From the repository root:
+On Windows, install the .NET SDK, Visual Studio desktop build tools, and .NET Framework 4.8. Reference assemblies for compilation are restored from NuGet, so the old 4.6.1 targeting pack does not need to be installed. From the repository root:
 
 ```powershell
 ./tests/run-tests.ps1
@@ -27,6 +27,14 @@ Tests tagged `Category=Integration` cover real filesystem copy/move/overwrite, f
 WinForms event handlers, dialogs, designer-generated code, settings persistence, and full interactive window flows are not covered by these tests. They still need UI testing; the suite does not claim complete application coverage. Cobertura reports from `-Coverage` are written under `.artifacts/test-results` and include these uncovered application areas.
 
 The older `run-core-checks.ps1` and `run-integration-checks.ps1` smoke checks remain available. The latter expects a development build in `.artifacts/build`.
+
+## GitHub Actions
+
+`.github/workflows/ci.yml` runs on pushes and pull requests, and supports manual runs through the Actions tab. The `Windows build and tests` job restores dependencies, builds the application and test project, runs the complete xUnit suite with coverage, and runs both smoke checks. Failed commands fail the job. New commits cancel older runs for the same branch or pull request.
+
+CI uses `windows-2022` and the latest patched .NET 8.0.4xx SDK for compatibility with Visual Studio 2022. A temporary `global.json` on the runner prevents preinstalled newer SDKs from being selected. The application remains on .NET Framework 4.6.1 and the tests on 4.8. The development-only reference assembly package supplies the old framework at compile time and is not shipped with the application.
+
+The job uploads TRX test results and Cobertura coverage reports as `windows-test-results`, retained for 14 days. Upload is attempted even after test failure. No secrets or write permissions are needed, and the workflow does not publish releases. Once it has run on GitHub, maintainers can make `Windows build and tests` a required check in repository branch protection or rulesets.
 
 ## Verified results
 
