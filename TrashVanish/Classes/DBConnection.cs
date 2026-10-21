@@ -8,20 +8,57 @@ using TrashVanish.Classes;
 
 namespace TrashVanish
 {
-    // Persistence never displays dialogs. UI operation boundaries own presentation.
+    // Preserve the application's static API while allowing isolated stores in tests.
     public static class DBConnection
     {
-        private static SQLiteConnection Open()
+        private static DatabaseStore Store
         {
-            var builder =
-                new SQLiteConnectionStringBuilder(ConfigurationManager.ConnectionStrings["Default"].ConnectionString);
+            get { return new DatabaseStore(ConfigurationManager.ConnectionStrings["Default"].ConnectionString); }
+        }
+
+        public static void CheckDB() { Store.CheckDB(); }
+        public static List<RuleModel> LoadRules() { return Store.LoadRules(); }
+        public static bool IsRuleExist(string extension, string includes, int sensitive, string excludedID = null)
+        {
+            return Store.IsRuleExist(extension, includes, sensitive, excludedID);
+        }
+        public static void AddRule(RuleModel rule) { Store.AddRule(rule); }
+        public static void UpdateRule(string id, RuleModel rule) { Store.UpdateRule(id, rule); }
+        public static void DeleteRule(string id) { Store.DeleteRule(id); }
+        public static List<SetModel> LoadSets() { return Store.LoadSets(); }
+        public static SetModel LoadSetByID(string id) { return Store.LoadSetByID(id); }
+        public static void AddSet(string name, Dictionary<string, string> extensions, string path, int sensitive)
+        {
+            Store.AddSet(name, extensions, path, sensitive);
+        }
+        public static void UpdateSet(string id, string name, Dictionary<string, string> extensions, string path,
+                                     int sensitive)
+        {
+            Store.UpdateSet(id, name, extensions, path, sensitive);
+        }
+        public static void DeleteSet(string id) { Store.DeleteSet(id); }
+    }
+
+    // Persistence never displays dialogs. UI operation boundaries own presentation.
+    internal sealed class DatabaseStore
+    {
+        private readonly string connectionString;
+
+        internal DatabaseStore(string connectionString)
+        {
+            this.connectionString = connectionString;
+        }
+
+        private SQLiteConnection Open()
+        {
+            var builder = new SQLiteConnectionStringBuilder(connectionString);
             if (!Path.IsPathRooted(builder.DataSource))
                 builder.DataSource = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, builder.DataSource);
             var connection = new SQLiteConnection(builder.ConnectionString);
             connection.Open();
             return connection;
         }
-        public static void CheckDB()
+        public void CheckDB()
         {
             using (var connection = Open()) using (var transaction = connection.BeginTransaction())
             {
@@ -49,7 +86,7 @@ namespace TrashVanish
                 return command.ExecuteNonQuery();
             }
         }
-        public static List<RuleModel> LoadRules()
+        public List<RuleModel> LoadRules()
         {
             using (var connection = Open()) using (
                 var command =
@@ -66,7 +103,7 @@ namespace TrashVanish
                 return rules;
             }
         }
-        public static bool IsRuleExist(string extension, string includes, int sensitive, string excludedID = null)
+        public bool IsRuleExist(string extension, string includes, int sensitive, string excludedID = null)
         {
             using (var connection = Open()) using (
                 var command =
@@ -82,7 +119,7 @@ namespace TrashVanish
                 return Convert.ToInt32(command.ExecuteScalar()) > 0;
             }
         }
-        private static void SaveRule(string id, RuleModel rule)
+        private void SaveRule(string id, RuleModel rule)
         {
             using (var connection = Open()) using (var transaction = connection.BeginTransaction())
             {
@@ -114,19 +151,19 @@ namespace TrashVanish
                 transaction.Commit();
             }
         }
-        public static void AddRule(RuleModel rule)
+        public void AddRule(RuleModel rule)
         {
             SaveRule(null, rule);
         }
-        public static void UpdateRule(string id, RuleModel rule)
+        public void UpdateRule(string id, RuleModel rule)
         {
             SaveRule(id, rule);
         }
-        public static void DeleteRule(string id)
+        public void DeleteRule(string id)
         {
             using (var connection = Open()) Execute(connection, null, "DELETE FROM rulesTable WHERE id=@p0", id);
         }
-        public static List<SetModel> LoadSets()
+        public List<SetModel> LoadSets()
         {
             var sets = new List<SetModel>();
             var lookup = new Dictionary<string, SetModel>();
@@ -160,23 +197,23 @@ namespace TrashVanish
             }
             return sets;
         }
-        public static SetModel LoadSetByID(string id)
+        public SetModel LoadSetByID(string id)
         {
             var set = LoadSets().SingleOrDefault(s => s.setID == id);
             if (set == null)
                 throw new InvalidOperationException("Set not found");
             return set;
         }
-        public static void AddSet(string name, Dictionary<string, string> extensions, string path, int sensitive)
+        public void AddSet(string name, Dictionary<string, string> extensions, string path, int sensitive)
         {
             SaveSet(null, name, extensions, path, sensitive);
         }
-        public static void UpdateSet(string id, string name, Dictionary<string, string> extensions, string path,
+        public void UpdateSet(string id, string name, Dictionary<string, string> extensions, string path,
                                      int sensitive)
         {
             SaveSet(id, name, extensions, path, sensitive);
         }
-        private static void SaveSet(string id, string name, Dictionary<string, string> extensions, string path,
+        private void SaveSet(string id, string name, Dictionary<string, string> extensions, string path,
                                     int sensitive)
         {
             var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -208,7 +245,7 @@ namespace TrashVanish
                 transaction.Commit();
             }
         }
-        public static void DeleteSet(string id)
+        public void DeleteSet(string id)
         {
             using (var connection = Open()) using (var transaction = connection.BeginTransaction())
             {
